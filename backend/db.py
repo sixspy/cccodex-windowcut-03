@@ -17,13 +17,14 @@ PRODUCT_META = {
         "ingest",
         "late_bucket",
         "materialize",
+        "materialize_registry",
         "reconcile",
         "locks",
         "audit",
         "hold_staging",
         "reopen",
     ],
-    "stubs": ["hold_release", "late_promote", "partition_mat", "reopen"],
+    "stubs": ["hold_release", "late_promote", "reopen"],
 }
 
 
@@ -79,10 +80,18 @@ CREATE TABLE IF NOT EXISTS late_bucket(
 CREATE TABLE IF NOT EXISTS materializations(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   window_id INTEGER NOT NULL,
+  run_id TEXT,
   status TEXT NOT NULL,
   row_count INTEGER NOT NULL,
   total_amount REAL NOT NULL,
   partition_key TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS materialize_registry(
+  policy_date TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  frozen INTEGER NOT NULL,
+  actor TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS hold_staging(
@@ -241,8 +250,8 @@ def seed_if_empty(conn: sqlite3.Connection) -> None:
                 ),
             )
     conn.execute(
-        "INSERT INTO materializations(window_id,status,row_count,total_amount,partition_key,created_at) VALUES (?,?,?,?,?,?)",
-        (1, "成功", 1, 12.5, "W-1101-g1", "2026-11-02T00:10:00"),
+        "INSERT INTO materializations(window_id,run_id,status,row_count,total_amount,partition_key,created_at) VALUES (?,?,?,?,?,?,?)",
+        (1, "legacy-seed", "成功", 1, 12.5, "W-1101-g1", "2026-11-02T00:10:00"),
     )
     conn.execute(
         "INSERT INTO audit_trail(actor,action,target,payload,created_at) VALUES (?,?,?,?,?)",
@@ -250,9 +259,21 @@ def seed_if_empty(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """既有库文件继续挂：对旧版 app.db 做幂等轻量迁移。"""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(materializations)")}
+    if "run_id" not in cols:
+        conn.execute("ALTER TABLE materializations ADD COLUMN run_id TEXT")
+    # 旧台账行没有 run 概念，补一个可追溯的固定 run 标记，不重写业务数。
+    conn.execute(
+        "UPDATE materializations SET run_id='legacy-seed' WHERE run_id IS NULL"
+    )
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         ensure_users(conn)
         seed_if_empty(conn)
         conn.commit()

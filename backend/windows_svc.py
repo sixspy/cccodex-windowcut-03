@@ -9,6 +9,7 @@ from auth import AuthHeader, require_user
 from db import connect, write_audit
 from locks import release, require_lock
 from models import WindowCreateIn
+from partitions import partition_rows
 
 router = APIRouter(tags=["windows"])
 
@@ -53,13 +54,25 @@ def close_window(wid: int, authorization: AuthHeader = None):
                 return {"ok": True, "already": True}
             now = datetime.now().isoformat(timespec="seconds")
             token = f"seal-{wid}-{w['generation']}-{now}"
+            # 关窗快照按同一分区规则取键，供后续物化/对账/审计同态互证。
+            parts = partition_rows(conn, wid)
             conn.execute(
                 "UPDATE windows SET status='已关闭', seal_token=? WHERE id=?",
                 (token, wid),
             )
-            write_audit(conn, user, "window_close", str(wid), {"seal_token": token})
+            write_audit(
+                conn,
+                user,
+                "window_close",
+                str(wid),
+                {
+                    "seal_token": token,
+                    "partition_keys": [p["partition_key"] for p in parts],
+                    "in_window_partitions": parts,
+                },
+            )
             conn.commit()
-            return {"ok": True, "seal_token": token}
+            return {"ok": True, "seal_token": token, "partitions": parts}
         finally:
             release(conn, lock_key, user)
             conn.commit()

@@ -1,0 +1,4 @@
+# 仓库存 LF，避免 9p/Windows 挂载把工作区转成 CRLF 造成整文件伪 diff
+* text=auto eol=lf
+*.png binary
+*.db binary

@@ -29,6 +29,8 @@ createApp({
     const locks = ref([]);
     const holds = ref([]);
     const dash = ref({});
+    const registry = ref({});
+    const matForm = ref({ wid: "", fail_partition: "B" });
     const form = ref({
       window_name: "W-1102",
       biz_key: "ORD-9",
@@ -88,6 +90,9 @@ createApp({
       const m = await api.get("/api/materializations");
       if (m === null) return;
       mats.value = Array.isArray(m.body.items) ? m.body.items : [];
+      const reg = await api.get("/api/materializations/registry");
+      if (reg === null) return;
+      registry.value = reg.body || {};
       const late = await api.get("/api/late-bucket");
       if (late === null) return;
       lateItems.value = Array.isArray(late.body.items) ? late.body.items : [];
@@ -173,8 +178,25 @@ createApp({
       await refresh();
     }
 
-    async function partitionStub() {
-      await api.post("/api/materializations/partition-stub", {});
+    async function loadRegistry() {
+      actionErr.value = "";
+      const r = await api.get("/api/materializations/registry");
+      if (r) registry.value = r.body || {};
+      await refresh();
+    }
+
+    async function materializeFail(wid, failPartition) {
+      actionErr.value = "";
+      const id = Number(wid);
+      if (!id) {
+        actionErr.value = "请填已关窗的窗口 ID";
+        return;
+      }
+      const r = await api.post("/api/windows/" + id + "/materialize", {
+        fail_simulate: true,
+        fail_partition: failPartition || "B",
+      });
+      if (r && !r.ok) actionErr.value = r.body.detail || "失败";
       await refresh();
     }
 
@@ -209,6 +231,8 @@ createApp({
       locks,
       holds,
       dash,
+      registry,
+      matForm,
       form,
       holdForm,
       actionErr,
@@ -224,7 +248,8 @@ createApp({
       reopenStub,
       promoteLate,
       discardLate,
-      partitionStub,
+      loadRegistry,
+      materializeFail,
       createHold,
       refresh,
     };

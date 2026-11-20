@@ -29,5 +29,10 @@ class ReopenIn(BaseModel):
 
 
 class MaterializeIn(BaseModel):
+    # 分区键仅用于兼容旧单分区入口；留空则按 biz_key 首字符全分区物化。
     partition_key: str | None = None
+    # 正确性口径：缺省走分区物化册钉死的「整窗回滚」，传乙路径会被拒写。
+    path: str | None = None
+    # 夹具：模拟分片失败；fail_simulate=True 时指定哪个分区炸，留空炸首个。
     fail_simulate: bool = False
+    fail_partition: str | None = None
